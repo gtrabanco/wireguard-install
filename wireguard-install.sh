@@ -92,48 +92,67 @@ TUN needs to be enabled before running this installer."
 	fi
 fi
 
+choose_menu() {
+	local opt PS3="${1:-Choose option}: "
+	local -r options=("${@:2}")
+	select opt in "${options[@]}"; do
+		echo -n "$opt"
+		break
+	done
+}
+
+choose_menu_default() {
+	local opt default_option=1 PS3="${1:-Choose option}: "
+	if [[ ${2:-} =~ ^[0-9]+$ ]]; then
+		default_option="$2"
+		local -r options=("${@:3}")
+	else
+		local -r options=("${@:2}")
+	fi
+	
+	select opt in "${options[@]}"; do
+		[[ -z "$opt" ]] && opt=1
+		echo -n "$opt"
+		break
+	done
+}
+
 new_client_dns () {
 	echo "Select a DNS server for the client:"
-	echo "   1) Current system resolvers"
-	echo "   2) Google"
-	echo "   3) 1.1.1.1"
-	echo "   4) OpenDNS"
-	echo "   5) Quad9"
-	echo "   6) AdGuard"
-	read -p "DNS server [1]: " dns
-	until [[ -z "$dns" || "$dns" =~ ^[1-6]$ ]]; do
-		echo "$dns: invalid selection."
-		read -p "DNS server [1]: " dns
+	dns="$(choose_menu_default "DNS server [1]" "Current system resolvers" "Google" "Cloudflare" "OpenDNS" "Quad9" "Adguard" || echo -n "1")"
+	local PS3="DNS server [1]: "
+	local options=("Current system resolvers" "Google" "Cloudflare" "OpenDNS" "Quad9" "Adguard")
+	select opt in "${options[@]}"; do
+		case $opt in
+			"Current system resolvers")
+				# Locate the proper resolv.conf
+				# Needed for systems running systemd-resolved
+				if grep -q '^nameserver 127.0.0.53' "/etc/resolv.conf"; then
+					resolv_conf="/run/systemd/resolve/resolv.conf"
+				else
+					resolv_conf="/etc/resolv.conf"
+				fi
+				# Extract nameservers and provide them in the required format
+				dns=$(grep -v '^#\|^;' "$resolv_conf" | grep '^nameserver' | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | xargs | sed -e 's/ /, /g')
+				;;
+			"Google")
+				dns="8.8.8.8, 8.8.4.4"
+				;;
+			"Cloudflare")
+				dns="1.1.1.1, 1.0.0.1"
+				;;
+			"OpenDNS")
+				dns="208.67.222.222, 208.67.220.220"
+				;;
+			"Quad9")
+				dns="9.9.9.9, 149.112.112.112"
+				;;
+			"AdGuard")
+				dns="94.140.14.14, 94.140.15.15"
+				;;
+		esac
+		[[ -n "${dns:-}" ]] && break
 	done
-		# DNS
-	case "$dns" in
-		1|"")
-			# Locate the proper resolv.conf
-			# Needed for systems running systemd-resolved
-			if grep -q '^nameserver 127.0.0.53' "/etc/resolv.conf"; then
-				resolv_conf="/run/systemd/resolve/resolv.conf"
-			else
-				resolv_conf="/etc/resolv.conf"
-			fi
-			# Extract nameservers and provide them in the required format
-			dns=$(grep -v '^#\|^;' "$resolv_conf" | grep '^nameserver' | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | xargs | sed -e 's/ /, /g')
-		;;
-		2)
-			dns="8.8.8.8, 8.8.4.4"
-		;;
-		3)
-			dns="1.1.1.1, 1.0.0.1"
-		;;
-		4)
-			dns="208.67.222.222, 208.67.220.220"
-		;;
-		5)
-			dns="9.9.9.9, 149.112.112.112"
-		;;
-		6)
-			dns="94.140.14.14, 94.140.15.15"
-		;;
-	esac
 }
 
 new_client_setup () {
@@ -235,7 +254,7 @@ if [[ ! -e /etc/wireguard/wg0.conf ]]; then
 	fi
 	echo
 	echo "What port should WireGuard listen to?"
-	read -p "Port [51820]: " port
+	read -rp "Port [51820]: " port
 	until [[ -z "$port" || "$port" =~ ^[0-9]+$ && "$port" -le 65535 ]]; do
 		echo "$port: invalid port."
 		read -p "Port [51820]: " port
@@ -243,7 +262,7 @@ if [[ ! -e /etc/wireguard/wg0.conf ]]; then
 	[[ -z "$port" ]] && port="51820"
 	echo
 	echo "Enter a name for the first client:"
-	read -p "Name [client]: " unsanitized_client
+	read -rp "Name [client]: " unsanitized_client
 	# Allow a limited set of characters to avoid conflicts
 	client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
 	[[ -z "$client" ]] && client="client"
